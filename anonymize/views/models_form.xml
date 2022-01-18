@@ -1,0 +1,17 @@
+<odoo>
+	<data noupdate='0'>
+
+
+		<record id="view_ir_model_form" model="ir.ui.view">
+			<field name="model">ir.model</field>
+			<field name="inherit_id" ref="base.view_model_form"/>
+			<field name="arch" type="xml">
+				<field name="name" position="after">
+					<field name="anonymize_erase"  />
+				</field>
+			</field>
+		</record>
+	
+
+	</data>
+</odoo>
