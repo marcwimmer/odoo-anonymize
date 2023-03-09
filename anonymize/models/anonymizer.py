@@ -118,19 +118,6 @@ class Anonymizer(models.AbstractModel):
                 values = []
                 v = rec[1] or ''
                 v = field._anonymize_value(v)
-
-                if any(x in field.name for x in ['phone', 'fax', 'mobile']):
-                    v = self.gen_phone()
-                else:
-                    if "@" in v or 'email' in field.name:
-                        v = self.generate_random_email()
-                    elif field.name == 'lastname':
-                        v = names.get_last_name()
-                    elif field.name == 'firstname':
-                        v = names.get_first_name()
-                    else:
-                        v = names.get_full_name()
-
                 if isinstance(v, str):
                     maxdblen = _get_max_column_width(self.env.cr, table, field.name)
                     if maxdblen is not None:
@@ -146,6 +133,3 @@ class Anonymizer(models.AbstractModel):
                     logger.info(f"{table} Done {i} of {len(recs)}: {quote:.1f}%")
 
         self.env['ir.config_parameter'].set_param(KEY, '1')
-
-            for i, rec in enumerate(recs, 1):
-                v = rec[1] or ""
