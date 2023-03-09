@@ -7,6 +7,37 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _get_max_column_width(cr, tablename, fieldname):
+    sql = (
+        "SELECT character_maximum_length "
+        "FROM information_schema.columns "
+        "WHERE table_name = %s  AND column_name = %s;"
+    )
+    cr.execute(
+        sql,
+        (
+            tablename,
+            fieldname,
+        ),
+    )
+    return cr.fetchone()[0]
+
+
+def tabletype(cr, tablename):
+    sql = (
+        "SELECT table_name, table_type "
+        " FROM information_schema.tables "
+        " WHERE table_schema = 'public' "
+        f" AND table_name = '{tablename}';"
+    )
+    cr.execute(sql)
+    rec = cr.fetchone()
+    if not rec:
+        return None
+    ttype = rec[1]
+    return {"BASE TABLE": "table", "VIEW": "view"}[ttype]
+
+
 class Anonymizer(models.AbstractModel):
     _name = 'frameworktools.anonymizer'
     _domains = ["hotmail.com", "gmail.com", "aol.com", "mail.com", "mail.kz", "yahoo.com"]
@@ -75,13 +106,19 @@ class Anonymizer(models.AbstractModel):
                 logger.info(f"Ignoring not existent column: {table}:{field.name}")
                 continue
 
-            cr.execute("select id, {} from {} order by id desc".format(field.name, table))
+            # check if table is a view
+            if tabletype(self.env.cr, table) == "view":
+                continue
+
+            cr.execute("select id, \"{}\" from {} order by id desc".format(field.name, table))
             recs = cr.fetchall()
             logger.info(f"Anonymizing {len(recs)} records of {table}")
             logger.info(f"Anonymizing following column {field.name}")
-            for rec in recs:
+            for i, rec in enumerate(recs, 1):
                 values = []
                 v = rec[1] or ''
+                v = field._anonymize_value(v)
+
                 if any(x in field.name for x in ['phone', 'fax', 'mobile']):
                     v = self.gen_phone()
                 else:
@@ -94,9 +131,21 @@ class Anonymizer(models.AbstractModel):
                     else:
                         v = names.get_full_name()
 
-                cr.execute(f"update {table} set {field.name} = %s where id = %s", (
+                if isinstance(v, str):
+                    maxdblen = _get_max_column_width(self.env.cr, table, field.name)
+                    if maxdblen is not None:
+                        if maxdblen < len(v):
+                            v = v[:maxdblen]
+
+                cr.execute(f"update {table} set \"{field.name}\" = %s where id = %s", (
                     v,
                     rec[0],
                 ))
+                if not i % 500:
+                    quote = i / len(recs) * 100
+                    logger.info(f"{table} Done {i} of {len(recs)}: {quote:.1f}%")
 
         self.env['ir.config_parameter'].set_param(KEY, '1')
+
+            for i, rec in enumerate(recs, 1):
+                v = rec[1] or ""
