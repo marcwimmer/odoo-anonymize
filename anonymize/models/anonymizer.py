@@ -58,6 +58,7 @@ class Anonymizer(models.AbstractModel):
             self.env.cr.execute(
                 "update res_users set login = %s where id=%s", (login, rec[0])
             )
+
     @api.model
     def gen_phone(self):
         first = str(random.randint(00000, 99999))
@@ -115,7 +116,7 @@ class Anonymizer(models.AbstractModel):
             and self.env["ir.config_parameter"].get_param(key=KEY, default="0") == "1"
         ):
             return
-       
+
         self._rename_logins()
 
         self._rename_logins()
