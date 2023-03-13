@@ -85,10 +85,10 @@ class Anonymizer(models.AbstractModel):
         )
 
     def _delete_mail_tracking_values(self):
-        for field in self.env["ir.model.fields"].search([("anonymize", "=", True)]):
+        for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             self.env.cr.execute(
                 """
-                delete from mail_tracking_value where field = %s"
+                delete from mail_tracking_value where field = %s
                 and
                 mail_message_id in (select id from mail_message where model=%s)
             """,
@@ -123,12 +123,29 @@ class Anonymizer(models.AbstractModel):
         self._delete_mail_tracking_values()
         self.env["ir.model.fields"]._apply_default_anonymize_fields()
 
-        for field in self.env["ir.model.fields"].search([("anonymize", "=", True)]):
+        for model in self.env['ir.model'].search([('anonymize_erase', '=', True)]):
+            table = model._table
+            self.env.cr.execute(
+                "DELETE FROM {table};"
+            )
+            logger.info(f"Deleting Table {table}")
+
+        for field in self.env["ir.model.fields"].search(
+            [("anonymize", "!=", False)], order="model, name"
+        ):
+            if field.name == 'code':
+                raise Exception(f'{field.model}:{field.name}')
             try:
                 obj = self.env[field.model]
             except KeyError:
                 continue
             table = obj._table
+
+            if table in [
+                "mail_messaeg_res_partner_needaction_rel",
+            ]:
+                continue
+
             cr = self.env.cr
             if not table_exists(cr, table):
                 continue
@@ -144,10 +161,8 @@ class Anonymizer(models.AbstractModel):
                 'select id, "{}" from {} order by id desc'.format(field.name, table)
             )
             recs = cr.fetchall()
-            logger.info(f"Anonymizing {len(recs)} records of {table}")
-            logger.info(f"Anonymizing following column {field.name}")
+            logger.info(f"Anonymizing following column {field.model}:{field.name} - records{len(recs)}")
             for i, rec in enumerate(recs, 1):
-                values = []
                 v = rec[1] or ""
                 v = field._anonymize_value(v)
                 if isinstance(v, str):

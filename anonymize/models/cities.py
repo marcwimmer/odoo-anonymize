@@ -385,3 +385,8 @@ city_names = [
     "York",
     "Youngstown",
 ]
+
+street_names = [
+    "Bakestreet",
+    "Ringstr",
+]
