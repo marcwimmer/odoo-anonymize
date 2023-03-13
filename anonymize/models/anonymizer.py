@@ -58,6 +58,7 @@ class Anonymizer(models.AbstractModel):
             self.env.cr.execute(
                 "update res_users set login = %s where id=%s", (login, rec[0])
             )
+
     @api.model
     def gen_phone(self):
         first = str(random.randint(00000, 99999))
