@@ -168,7 +168,10 @@ class Anonymizer(models.AbstractModel):
             new_rec = {"id": rec["id"]}
             if not i % 100:
                 quote = round(i / len(recs) * 100, 1)
-                logger.info(f"Anonymizing values - progress: {i + 1} of {len(recs)} {quote}%")
+                logger.info(
+                    f"Anonymizing values {table} - "
+                    f"progress: {i + 1} of {len(recs)} {quote}%"
+                )
 
             for field in model_dbfields:
                 v = field._anonymize_value(rec[field.name] or "")
@@ -197,9 +200,13 @@ class Anonymizer(models.AbstractModel):
         for i, rec in enumerate(new_values):
             sql_values = [rec[x] for x in sql_fields]
             self.env.cr.execute(
-                f'update {table} set "{sql_updates}" where id = %s',
+                f'update {table} set {sql_updates} where id = %s',
                 tuple(sql_values + [rec["id"]]),
             )
-            if not i % 500:
+            if not i % 100:
                 quote = round(i / len(new_values) * 100, 1)
-                logger.info(f"{table} Writing to database done {i} of {len(new_values)}: {quote:.1f}%")
+                logger.info(
+                    f"{table} Writing to database done {i} of "
+                    f"{len(new_values)}: {quote:.1f}%"
+                )
+                self.env.cr.commit()
