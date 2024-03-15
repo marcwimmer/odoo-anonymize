@@ -105,6 +105,8 @@ class Fields(models.Model):
     def _anonymize_value(self, val):
         import names
         from .cities import city_names
+        if val is None or val is False:
+            return None
 
         if self.anonymize == "fullname":
             return names.get_full_name()

@@ -131,7 +131,7 @@ class Anonymizer(models.AbstractModel):
         dbfields = self.env["ir.model.fields"].search(
             [("anonymize", "!=", False)], order="model"
         )
-        models = dbfields.mapped("model")
+        models = list(sorted(set(dbfields.mapped("model"))))
         for model in models:
             logger.info(f"Anonymizing model {model}")
 
@@ -166,6 +166,7 @@ class Anonymizer(models.AbstractModel):
 
     def _anonymize_records(self, recs, model_dbfields, table):
         res = []
+        max_column_width = {}
         logger.info(f"Generating anonymizing {len(recs)} records of {table}")
         for i, rec in enumerate(recs):
             new_rec = {"id": rec["id"]}
@@ -179,7 +180,13 @@ class Anonymizer(models.AbstractModel):
             for field in model_dbfields:
                 v = field._anonymize_value(rec[field.name] or "")
                 if isinstance(v, str):
-                    maxdblen = _get_max_column_width(self.env.cr, table, field.name)
+                    if field.name not in max_column_width:
+                        max_column_width.setdefault(
+                            field.name,
+                            _get_max_column_width(self.env.cr, table, field.name),
+                        )
+
+                    maxdblen = max_column_width[field.name]
                     if maxdblen is not None:
                         if maxdblen < len(v):
                             v = v[:maxdblen]
