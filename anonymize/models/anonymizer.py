@@ -85,6 +85,7 @@ class Anonymizer(models.AbstractModel):
         )
 
     def _delete_mail_tracking_values(self):
+        import pudb;pudb.set_trace()
         for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             self.env.cr.execute(
                 """
@@ -116,12 +117,13 @@ class Anonymizer(models.AbstractModel):
             and self.env["ir.config_parameter"].get_param(key=KEY, default="0") == "1"
         ):
             return
+        self.env["ir.model.fields"]._apply_default_anonymize_fields()
+        self.env.cr.commit()
 
         self._rename_logins()
 
         self._delete_critical_tables()
         self._delete_mail_tracking_values()
-        self.env["ir.model.fields"]._apply_default_anonymize_fields()
 
         for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             try:

@@ -50,6 +50,7 @@ class Fields(models.Model):
     def _apply_default_anonymize_fields(self):
         if self.search_count([("anonymize", "!=", False)]):
             return
+        breakpoint()
 
         for dbfield in self.env["ir.model.fields"].search(
             [("ttype", "in", ["char", "text"])]
@@ -63,21 +64,22 @@ class Fields(models.Model):
                 ("fax", "phone"),
                 ("email", "email"),
             ]:
-                self.env.cr.execute(
-                    "update ir_model_fields set anonymize = %s where id = %s",
-                    (
-                        x[1],
-                        dbfield.id,
-                    ),
-                )
-                if len(x) > 2:
+                if x[0] in dbfield.name:
                     self.env.cr.execute(
-                        "update ir_model_fields set anonymize_length = %s where id = %s",
+                        "update ir_model_fields set anonymize = %s where id = %s",
                         (
-                            x[2],
+                            x[1],
                             dbfield.id,
                         ),
                     )
+                    if len(x) > 2:
+                        self.env.cr.execute(
+                            "update ir_model_fields set anonymize_length = %s where id = %s",
+                            (
+                                x[2],
+                                dbfield.id,
+                            ),
+                        )
 
         for dbfield in self.env["ir.model.fields"].search(
             [("model", "=", "res.partner"), ("name", "in", ["display_name", "name"])]
