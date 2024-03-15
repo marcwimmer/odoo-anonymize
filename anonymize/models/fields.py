@@ -105,6 +105,7 @@ class Fields(models.Model):
 
     def _anonymize_value(self, val):
         import names
+        from .cities import city_names
 
         if self.anonymize == "fullname":
             return names.get_full_name()
@@ -115,7 +116,7 @@ class Fields(models.Model):
         elif self.anonymize == "phone":
             return self.gen_phone()
         elif self.anonymize == "city":
-            return random.choice(Fields.city_names)
+            return random.choice(city_names)
         elif self.anonymize == "clear":
             if self.ttype in ["char", "text"]:
                 return ""

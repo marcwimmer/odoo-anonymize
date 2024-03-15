@@ -85,7 +85,6 @@ class Anonymizer(models.AbstractModel):
         )
 
     def _delete_mail_tracking_values(self):
-        import pudb;pudb.set_trace()
         for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             self.env.cr.execute(
                 """
