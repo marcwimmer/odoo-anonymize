@@ -123,49 +123,83 @@ class Anonymizer(models.AbstractModel):
 
         self._delete_critical_tables()
         self._delete_mail_tracking_values()
+        dbfields = self.env["ir.model.fields"].search(
+            [("anonymize", "!=", False)], order="model"
+        )
+        models = dbfields.mapped("model")
+        for model in models:
+            logger.info(f"Anonymizing model {model}")
 
-        for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             try:
-                obj = self.env[field.model]
+                obj = self.env[model]
             except KeyError:
                 continue
             table = obj._table
             cr = self.env.cr
             if not table_exists(cr, table):
                 continue
-            if not column_exists(cr, table, field.name):
-                logger.info(f"Ignoring not existent column: {table}:{field.name}")
-                continue
 
             # check if table is a view
             if tabletype(self.env.cr, table) == "view":
                 continue
+            model_dbfields = dbfields.filtered(lambda x: x.model == model)
+            effective_fields = model_dbfields.browse()
 
-            cr.execute(
-                'select id, "{}" from {} order by id desc'.format(field.name, table)
-            )
-            recs = cr.fetchall()
-            logger.info(f"Anonymizing {len(recs)} records of {table}")
-            logger.info(f"Anonymizing following column {field.name}")
-            for i, rec in enumerate(recs, 1):
-                values = []
-                v = rec[1] or ""
-                v = field._anonymize_value(v)
+            for field in model_dbfields:
+                if not column_exists(cr, table, field.name):
+                    logger.info(f"Ignoring not existent column: {table}:{field.name}")
+                else:
+                    effective_fields |= field
+
+            if not effective_fields:
+                continue
+            sql_fields = ",".join(sorted(effective_fields.mapped("name")))
+            cr.execute(f"select id, {sql_fields} from {table} order by id desc")
+            recs = cr.dictfetchall()
+            new_values = self._anonymize_records(recs, effective_fields, table)
+            self._update_table_with_new_values(table, new_values)
+
+        self.env["ir.config_parameter"].set_param(KEY, "1")
+
+    def _anonymize_records(self, recs, model_dbfields, table):
+        res = []
+        logger.info(f"Generating anonymizing {len(recs)} records of {table}")
+        for i, rec in enumerate(recs):
+            new_rec = {"id": rec["id"]}
+            if not i % 100:
+                quote = round(i / len(recs) * 100, 1)
+                logger.info(f"Anonymizing values - progress: {i + 1} of {len(recs)} {quote}%")
+
+            for field in model_dbfields:
+                v = field._anonymize_value(rec[field.name] or "")
                 if isinstance(v, str):
                     maxdblen = _get_max_column_width(self.env.cr, table, field.name)
                     if maxdblen is not None:
                         if maxdblen < len(v):
                             v = v[:maxdblen]
 
-                cr.execute(
-                    f'update {table} set "{field.name}" = %s where id = %s',
-                    (
-                        v,
-                        rec[0],
-                    ),
-                )
-                if not i % 500:
-                    quote = i / len(recs) * 100
-                    logger.info(f"{table} Done {i} of {len(recs)}: {quote:.1f}%")
+                new_rec[field.name] = v
 
-        self.env["ir.config_parameter"].set_param(KEY, "1")
+            res.append(new_rec)
+        return res
+
+    def _update_table_with_new_values(self, table, new_values):
+        if not new_values:
+            return
+
+        sql_fields = list(sorted(filter(lambda x: x != "id", new_values[0].keys())))
+        updates = []
+        for field in sql_fields:
+            updates.append(f" {field} = %s")
+        sql_updates = ",".join(updates)
+        del updates
+
+        for i, rec in enumerate(new_values):
+            sql_values = [rec[x] for x in sql_fields]
+            self.env.cr.execute(
+                f'update {table} set "{sql_updates}" where id = %s',
+                tuple(sql_values + [rec["id"]]),
+            )
+            if not i % 500:
+                quote = round(i / len(new_values) * 100, 1)
+                logger.info(f"{table} Writing to database done {i} of {len(new_values)}: {quote:.1f}%")

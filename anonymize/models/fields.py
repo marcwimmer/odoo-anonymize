@@ -47,11 +47,9 @@ class Fields(models.Model):
                 raise ValidationError("Only chars can be anonymized!")
 
     @api.model
-    def _apply_default_anonymize_fields(self):
-        if self.search_count([("anonymize", "!=", False)]):
+    def _apply_default_anonymize_fields(self, force=False):
+        if not force and self.search_count([("anonymize", "!=", False)]):
             return
-        breakpoint()
-
         for dbfield in self.env["ir.model.fields"].search(
             [("ttype", "in", ["char", "text"])]
         ):
@@ -62,6 +60,7 @@ class Fields(models.Model):
                 ("city", "city"),
                 ("zip", "number", 5),
                 ("fax", "phone"),
+                ("email", "email"),
                 ("email", "email"),
             ]:
                 if x[0] in dbfield.name:
@@ -117,6 +116,8 @@ class Fields(models.Model):
             return self.gen_phone()
         elif self.anonymize == "city":
             return random.choice(city_names)
+        elif self.anonymize == "number":
+            return random.randint(1, 99999)
         elif self.anonymize == "clear":
             if self.ttype in ["char", "text"]:
                 return ""
