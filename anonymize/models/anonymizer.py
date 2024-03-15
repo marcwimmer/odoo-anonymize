@@ -93,7 +93,7 @@ class Anonymizer(models.AbstractModel):
                 and
                 mail_message_id in (select id from mail_message where model=%s)
             """,
-                (field.name, field.model_id.model),
+                (field.id, field.model_id.model),
             )
 
     @api.model
