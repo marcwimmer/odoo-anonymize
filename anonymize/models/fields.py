@@ -24,6 +24,8 @@ class Fields(models.Model):
             ["street", "Street"],
             ["phone", "Phone"],
             ["city", "City"],
+            ["email", "email"],
+            ["number", "number"],
         ],
         "Anonymize",
     )
@@ -61,8 +63,10 @@ class Fields(models.Model):
                 ("zip", "number", 5),
                 ("fax", "phone"),
                 ("email", "email"),
-                ("email", "email"),
             ]:
+                assert x[1] in [
+                    x[0] for x in self._fields["anonymize"].selection
+                ], f"{x[1]} not in selection!"
                 if x[0] in dbfield.name:
                     self.env.cr.execute(
                         "update ir_model_fields set anonymize = %s where id = %s",
@@ -105,6 +109,7 @@ class Fields(models.Model):
     def _anonymize_value(self, val):
         import names
         from .cities import city_names
+
         if val is None or val is False:
             return None
 
