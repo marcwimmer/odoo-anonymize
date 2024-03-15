@@ -123,6 +123,11 @@ class Anonymizer(models.AbstractModel):
 
         self._delete_critical_tables()
         self._delete_mail_tracking_values()
+        self.env.cr.commit()
+        self._anonymize_field_values()
+        self.env["ir.config_parameter"].set_param(KEY, "1")
+
+    def _anonymize_field_values(self):
         dbfields = self.env["ir.model.fields"].search(
             [("anonymize", "!=", False)], order="model"
         )
@@ -158,8 +163,6 @@ class Anonymizer(models.AbstractModel):
             recs = cr.dictfetchall()
             new_values = self._anonymize_records(recs, effective_fields, table)
             self._update_table_with_new_values(table, new_values)
-
-        self.env["ir.config_parameter"].set_param(KEY, "1")
 
     def _anonymize_records(self, recs, model_dbfields, table):
         res = []
@@ -200,7 +203,7 @@ class Anonymizer(models.AbstractModel):
         for i, rec in enumerate(new_values):
             sql_values = [rec[x] for x in sql_fields]
             self.env.cr.execute(
-                f'update {table} set {sql_updates} where id = %s',
+                f"update {table} set {sql_updates} where id = %s",
                 tuple(sql_values + [rec["id"]]),
             )
             if not i % 100:
