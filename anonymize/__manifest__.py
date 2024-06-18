@@ -1,6 +1,6 @@
 {
     "application": False,
-    "author": "Marc Wimmer (marc@itewimmer.de)",
+    "author": "Marc Wimmer (marc@zebroo.de)",
     "auto_install": True,
     "conflicts": [],
     "external_dependencies": {"bin": [], "python": ["names", "arrow"]},
@@ -12,7 +12,7 @@
     "js": [],
     "name": "anonymize",
     "test": [],
-    "version": "15.0.1.0",
+    "version": "1.0",
     "assets": {"web.assets_qweb": []},
     "demo": [],
 }
