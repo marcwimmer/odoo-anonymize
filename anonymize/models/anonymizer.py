@@ -88,7 +88,7 @@ class Anonymizer(models.AbstractModel):
         for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
             self.env.cr.execute(
                 """
-                delete from mail_tracking_value where field = %s
+                delete from mail_tracking_value where field_id = %s
                 and
                 mail_message_id in (select id from mail_message where model=%s)
             """,
