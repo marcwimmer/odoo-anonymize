@@ -8,8 +8,8 @@ on:
 
 permissions: write-all
 
-jobs:
-  deploy-subversions:
-    uses: Odoo-Ninjas/git-workflows/.github/workflows/deploy_to_subversions.yml@v5
-    with:
-      branches: "18.0:17.0"
+# jobs:
+#   deploy-subversions:
+#     uses: Odoo-Ninjas/git-workflows/.github/workflows/deploy_to_subversions.yml@v5
+#     with:
+#       branches: "18.0:17.0"
