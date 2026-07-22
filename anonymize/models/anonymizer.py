@@ -93,44 +93,164 @@ class Anonymizer(models.AbstractModel):
         self._delete_mail_tracking_values()
         self.env.cr.commit()
         self._anonymize_field_values()
+        self._anonymize_extra_gaps()
         self.env["ir.config_parameter"].set_param(KEY, "1")
 
-    def _anonymize_field_values(self):
-        dbfields = self.env["ir.model.fields"].search(
-            [("anonymize", "!=", False)], order="model"
-        )
-        models = list(sorted(set(dbfields.mapped("model"))))
-        for model in models:
-            logger.info(f"Anonymizing model {model}")
+    @api.model
+    def _anonymize_extra_gaps(self):
+        """Schliesst PII-Luecken, die die Namens-Heuristik NICHT erfasst
+        (Odoo-18 bvodin): Adressen, gespeicherte/berechnete Namensfelder,
+        mobile, vat, Freitext, User-Logins. Deterministische, id-basierte
+        Fake-Werte per Bulk-SQL. Referenznummern (*ref) werden bewusst NICHT
+        angefasst (koennen referenzielle Bedeutung tragen)."""
+        cr = self.env.cr
 
+        def upd(table, sets, where="TRUE"):
+            existing = [(c, e) for c, e in sets if column_exists(cr, table, c)]
+            if not table_exists(cr, table) or not existing:
+                return
+            clause = ", ".join(f"{c} = {e}" for c, e in existing)
+            logger.info(f"Gap-Closer: {table} ({len(existing)} Spalten)")
+            cr.execute(f"UPDATE {table} SET {clause} WHERE {where}")
+            cr.commit()
+
+        upd(
+            "res_partner",
+            [
+                ("street", "'Teststrasse ' || ((id % 500) + 1)"),
+                ("street2", "NULL"),
+                ("street_name", "'Teststrasse'"),
+                ("street_number", "((id % 200) + 1)::text"),
+                ("mobile", "CASE WHEN mobile IS NOT NULL AND mobile <> '' "
+                    "THEN '+49 30 ' || lpad((((id*7) % 9000000) + 1000000)::text, 7, '0') END"),
+                ("complete_name", "COALESCE(NULLIF(name,''), 'Partner ' || id)"),
+                ("display_name_no_ref", "COALESCE(NULLIF(name,''), 'Partner ' || id)"),
+                ("commercial_company_name", "CASE WHEN commercial_company_name IS NOT NULL "
+                    "AND commercial_company_name <> '' THEN 'Firma ' || id END"),
+                ("search_name", "lower(COALESCE(NULLIF(name,''), 'partner' || id))"),
+                ("vat", "CASE WHEN vat IS NOT NULL AND vat <> '' "
+                    "THEN 'DE' || lpad((((id*13) % 1000000000))::text, 9, '0') END"),
+                ("function", "CASE WHEN function IS NOT NULL AND function <> '' THEN 'Mitarbeiter' END"),
+                ("website", "CASE WHEN website IS NOT NULL AND website <> '' "
+                    "THEN 'https://example.com/' || id END"),
+                ("comment", "NULL"),
+            ],
+        )
+        upd("partner_inls_user", [("name", "'user' || id || '@example.com'")], "name IS NOT NULL")
+        upd("sub_user", [("name", "'user' || id || '@example.com'")], "name IS NOT NULL")
+        upd("partner_registration", [("user_name", "'user' || id")], "user_name IS NOT NULL")
+        upd("sale_order", [("order_comment", "NULL")], "order_comment IS NOT NULL")
+        upd("pre_partner", [("order_comment", "NULL")], "order_comment IS NOT NULL")
+        upd("sale_subscription", [("order_comment", "NULL")], "order_comment IS NOT NULL")
+        upd("res_users", [("signature", "NULL")], "signature IS NOT NULL")
+        upd("mail_alias", [("alias_full_name", "NULL")], "alias_full_name IS NOT NULL")
+        upd("zbs_mapper", [("comment", "NULL")], "comment IS NOT NULL")
+
+        # Bankdaten: Kontoinhaber-Namen + IBAN/Kontonummer
+        upd(
+            "res_partner_bank",
+            [
+                ("acc_holder_name", "CASE WHEN acc_holder_name IS NOT NULL AND acc_holder_name <> '' "
+                    "THEN 'Kontoinhaber ' || id END"),
+                # bewusst NICHT IBAN-foermig (sonst als "IBAN" fehl-erkannt):
+                ("acc_number", "'KONTO' || id"),
+                ("sanitized_acc_number", "'KONTO' || id"),
+            ],
+        )
+        # pre_partner (Import-Staging): Spalten, die die Heuristik NICHT erfasst.
+        # ACHTUNG: pre_partner.name ist NICHT res.partner.name -> wird vom Modul
+        # NICHT anonymisiert -> hier UNBEDINGT ersetzen (kein COALESCE-Behalten!).
+        upd(
+            "pre_partner",
+            [
+                ("name", "'Partner ' || id"),
+                ("display_name", "'Partner ' || id"),
+                ("commercial_company_name", "CASE WHEN commercial_company_name IS NOT NULL "
+                    "AND commercial_company_name <> '' THEN 'Firma ' || id END"),
+                ("parent_name", "CASE WHEN parent_name IS NOT NULL AND parent_name <> '' "
+                    "THEN 'Partner ' || id END"),
+                ("street2", "NULL"),
+                ("street_name", "'Teststrasse'"),
+                ("street_number", "((id % 200) + 1)::text"),
+                ("mobile", "CASE WHEN mobile IS NOT NULL AND mobile <> '' "
+                    "THEN '+49 30 ' || lpad((((id*7) % 9000000) + 1000000)::text, 7, '0') END"),
+                ("vat", "CASE WHEN vat IS NOT NULL AND vat <> '' "
+                    "THEN 'DE' || lpad((((id*13) % 1000000000))::text, 9, '0') END"),
+                ("comment", "NULL"),
+                ("order_contact_number", "NULL"),
+                ("reservation_extension_reason", "NULL"),
+            ],
+        )
+        # Transiente Wizards mit Mail-Resten leeren
+        upd("account_move_send_wizard",
+            [("mail_body", "NULL"), ("recipient_mails", "NULL")])
+
+    # SQL-Fake-Ausdruecke je anonymize-Typ (set-based, nutzen die PK id).
+    _FN = ("(ARRAY['Anna','Max','Lena','Paul','Mia','Tom','Eva','Jan','Lea','Ben',"
+           "'Nina','Finn','Sara','Leon','Emma','Noah','Lisa','Tim','Marie','Jonas'])"
+           "[(mod(id,20))+1]")
+    _LN = ("(ARRAY['Mueller','Schmidt','Meyer','Fischer','Weber','Wagner','Becker',"
+           "'Hoffmann','Schulz','Koch','Bauer','Richter','Klein','Wolf','Neumann',"
+           "'Schwarz','Zimmermann','Braun','Krueger','Hofmann'])[(mod(id,20))+1]")
+    _CITY = ("(ARRAY['Berlin','Hamburg','Muenchen','Koeln','Frankfurt','Stuttgart',"
+             "'Duesseldorf','Leipzig','Dortmund','Essen'])[(mod(id,10))+1]")
+
+    def _fake_expr(self, atype, alen):
+        if atype == "fullname":
+            return f"{self._FN} || ' ' || {self._LN}"
+        if atype == "firstname":
+            return self._FN
+        if atype == "lastname":
+            return self._LN
+        if atype == "city":
+            return self._CITY
+        if atype == "email":
+            return "'user' || id || '@example.com'"
+        if atype == "phone":
+            return "'+49 30 ' || lpad((mod(id*7, 9000000)+1000000)::text, 7, '0')"
+        if atype == "number":
+            n = alen or 5
+            return f"lpad((mod(abs(id), {10 ** n}))::text, {n}, '0')"
+        if atype == "clear":
+            return "''"
+        return None
+
+    def _anonymize_field_values(self):
+        """Set-based (Bulk-SQL) Anonymisierung: EIN UPDATE pro Tabelle statt
+        per-row (Faktor 100-1000 schneller, kein OOM). Fake-Werte id-basiert;
+        uebersetzbare jsonb-Felder werden gewrappt."""
+        from collections import defaultdict
+
+        cr = self.env.cr
+        dbfields = self.env["ir.model.fields"].search([("anonymize", "!=", False)])
+        by_table = defaultdict(list)  # table -> [(col, expr)]
+        for f in dbfields:
             try:
-                obj = self.env[model]
+                table = self.env[f.model]._table
             except KeyError:
                 continue
-            table = obj._table
-            cr = self.env.cr
-            if not table_exists(cr, table):
+            if not table_exists(cr, table) or tabletype(cr, table) == "view":
                 continue
-
-            # check if table is a view
-            if tabletype(self.env.cr, table) == "view":
+            if not column_exists(cr, table, f.name) or not column_exists(cr, table, "id"):
                 continue
-            model_dbfields = dbfields.filtered(lambda x: x.model == model)
-            effective_fields = model_dbfields.browse()
-
-            for field in model_dbfields:
-                if not column_exists(cr, table, field.name):
-                    logger.info(f"Ignoring not existent column: {table}:{field.name}")
-                else:
-                    effective_fields |= field
-
-            if not effective_fields:
+            e = self._fake_expr(f.anonymize, f.anonymize_length)
+            if not e:
                 continue
-            sql_fields = ",".join(sorted(effective_fields.mapped("name")))
-            cr.execute(f"select id, {sql_fields} from {table} order by id desc")
-            recs = cr.dictfetchall()
-            new_values = self._anonymize_records(recs, effective_fields, table)
-            self._update_table_with_new_values(table, new_values)
+            cr.execute(
+                "select data_type from information_schema.columns "
+                "where table_schema='public' and table_name=%s and column_name=%s",
+                (table, f.name),
+            )
+            r = cr.fetchone()
+            if r and r[0] == "jsonb":
+                e = f"jsonb_build_object('en_US', ({e}))"
+            by_table[table].append((f.name, e))
+
+        for table, sets in by_table.items():
+            clause = ", ".join(f"{c} = {e}" for c, e in sets)
+            logger.info(f"Bulk-anonymize {table} ({len(sets)} Spalten)")
+            cr.execute(f"UPDATE {table} SET {clause}")
+            cr.commit()
 
     def _anonymize_records(self, recs, model_dbfields, table):
         res = []
@@ -169,9 +289,21 @@ class Anonymizer(models.AbstractModel):
             return
 
         sql_fields = list(sorted(filter(lambda x: x != "id", new_values[0].keys())))
+        # Odoo 16+ speichert uebersetzbare char/text-Felder als jsonb
+        # ({"en_US": "..."}). Ein roher String-UPDATE wuerde dort
+        # "invalid input syntax for type json" werfen -> gezielt wrappen.
+        self.env.cr.execute(
+            "select column_name from information_schema.columns "
+            "where table_schema='public' and table_name=%s and data_type='jsonb'",
+            (table,),
+        )
+        jsonb_cols = {r[0] for r in self.env.cr.fetchall()}
         updates = []
         for field in sql_fields:
-            updates.append(f" {field} = %s")
+            if field in jsonb_cols:
+                updates.append(f" {field} = jsonb_build_object('en_US', %s::text)")
+            else:
+                updates.append(f" {field} = %s")
         sql_updates = ",".join(updates)
         del updates
 

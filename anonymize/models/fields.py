@@ -112,6 +112,8 @@ class Fields(models.Model):
             return names.get_full_name()
         elif self.anonymize == "lastname":
             return names.get_last_name()
+        elif self.anonymize == "firstname":
+            return names.get_first_name()
         elif self.anonymize == "email":
             return self.generate_random_email()
         elif self.anonymize == "phone":
