@@ -1,6 +1,6 @@
 import random
-from odoo import _, api, fields, models, SUPERUSER_ID
-from odoo.exceptions import UserError, RedirectWarning, ValidationError
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
 from .cities import city_names
 
 
@@ -33,19 +33,15 @@ class Fields(models.Model):
 
     @api.model
     def gen_phone(self):
-        first = str(random.randint(00000, 99999))
-        second = str(random.randint(10000, 99999)).zfill(7)
-
-        last = str(random.randint(1, 99)).zfill(2)
-        while last in ["1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888"]:
-            last = str(random.randint(1, 9998)).zfill(4)
-
+        first = str(random.randint(0, 99999)).zfill(5)
+        second = str(random.randint(0, 9999999)).zfill(7)
+        last = str(random.randint(0, 99)).zfill(2)
         return "{}/{}-{}".format(first, second, last)
 
     @api.constrains("anonymize")
     def _check_anonymize_flag(self):
-        for self in self:
-            if self.ttype not in ["char", "text"]:
+        for rec in self:
+            if rec.anonymize and rec.ttype not in ["char", "text"]:
                 raise ValidationError("Only chars can be anonymized!")
 
     @api.model
@@ -108,7 +104,6 @@ class Fields(models.Model):
 
     def _anonymize_value(self, val):
         import names
-        from .cities import city_names
 
         if val is None or val is False:
             return None
@@ -124,7 +119,8 @@ class Fields(models.Model):
         elif self.anonymize == "city":
             return random.choice(city_names)
         elif self.anonymize == "number":
-            return random.randint(1, 99999)
+            length = self.anonymize_length or 5
+            return str(random.randint(0, 10**length - 1)).zfill(length)
         elif self.anonymize == "clear":
             if self.ttype in ["char", "text"]:
                 return ""
@@ -133,6 +129,6 @@ class Fields(models.Model):
             elif self.ttype in ["int", "float"]:
                 return 0
             else:
-                raise NotImplementedError(self.type)
+                raise NotImplementedError(self.ttype)
         else:
             raise NotImplementedError(self.anonymize)
