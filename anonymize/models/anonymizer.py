@@ -1,8 +1,6 @@
 import os
-from odoo import _, api, fields, models, SUPERUSER_ID
+from odoo import api, models
 from odoo.tools.sql import column_exists, table_exists
-from odoo.exceptions import UserError, RedirectWarning, ValidationError
-import random
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,7 +19,10 @@ def _get_max_column_width(cr, tablename, fieldname):
             fieldname,
         ),
     )
-    return cr.fetchone()[0]
+    rec = cr.fetchone()
+    if not rec:
+        return None
+    return rec[0]
 
 
 def tabletype(cr, tablename):
@@ -29,9 +30,9 @@ def tabletype(cr, tablename):
         "SELECT table_name, table_type "
         " FROM information_schema.tables "
         " WHERE table_schema = 'public' "
-        f" AND table_name = '{tablename}';"
+        " AND table_name = %s;"
     )
-    cr.execute(sql)
+    cr.execute(sql, (tablename,))
     rec = cr.fetchone()
     if not rec:
         return None
@@ -41,14 +42,6 @@ def tabletype(cr, tablename):
 
 class Anonymizer(models.AbstractModel):
     _name = "frameworktools.anonymizer"
-    _domains = [
-        "hotmail.com",
-        "gmail.com",
-        "aol.com",
-        "mail.com",
-        "mail.kz",
-        "yahoo.com",
-    ]
 
     @api.model
     def _rename_logins(self):
@@ -58,31 +51,6 @@ class Anonymizer(models.AbstractModel):
             self.env.cr.execute(
                 "update res_users set login = %s where id=%s", (login, rec[0])
             )
-
-    @api.model
-    def gen_phone(self):
-        first = str(random.randint(00000, 99999))
-        second = str(random.randint(10000, 99999)).zfill(7)
-
-        last = str(random.randint(1, 99)).zfill(2)
-        while last in ["1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888"]:
-            last = str(random.randint(1, 9998)).zfill(4)
-
-        return "{}/{}-{}".format(first, second, last)
-
-    @api.model
-    def get_one_random_domain(self, domains):
-        return random.choice(domains)
-
-    @api.model
-    def generate_random_email(self):
-        import names
-
-        return (
-            names.get_full_name().replace(" ", ".")
-            + "@"
-            + self.get_one_random_domain(self._domains)
-        )
 
     def _delete_mail_tracking_values(self):
         for field in self.env["ir.model.fields"].search([("anonymize", "!=", False)]):
@@ -106,7 +74,7 @@ class Anonymizer(models.AbstractModel):
                 raise Exception(
                     "force must match the databasename {}".format(self.env.cr.dbname)
                 )
-        if not force and os.environ["DEVMODE"] != "1":
+        if not force and os.environ.get("DEVMODE") != "1":
             return
         import names
 
